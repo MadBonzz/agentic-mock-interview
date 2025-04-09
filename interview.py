@@ -5,15 +5,19 @@ import json
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
-import time
 import os
-import prompts
+from openai import OpenAI
+import re
+from formats import initial_schema, general_schema, initial_prompt_template, prompt_template, system_prompt
 
-pdf_path = 'uploaded_file.pdf'
+pdf_path = 'resumes/uploaded_file.pdf'
 embedding_model_path = 'C:/Users/shour/.cache/lm-studio/models/second-state/All-MiniLM-L6-v2-Embedding-GGUF/all-MiniLM-L6-v2-Q4_0.gguf'
-llm_path = 'C:/Users/shour/.cache/lm-studio/models/lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf'
+llm_id = 'meta-llama-3.1-8b-instruct'
 collection_name = 'resume'
+server_url = 'http://127.0.0.1:1234/v1'
 curr_dir = os.getcwd()
+
+gen_client = OpenAI(base_url=server_url, api_key="lm-studio")
 
 md_text = pymupdf4llm.to_markdown(pdf_path)
 
@@ -119,163 +123,68 @@ search_result = client.search(
   limit=3
 )
 
-llm = Llama(
-  model_path=llm_path,
-  n_ctx=16384,
-  n_gpu_layers=-1,
-  offload_kqv=True,
-  n_threads=16
-)
-
-first_response = llm.create_chat_completion(
+first_response = gen_client.chat.completions.create(
+     model=llm_id,
      messages=[
-        {
-            "role": "system",
-            "content": "You are an AI interviewer following a structured process."
-        },
+        system_prompt,
         {
             "role": "user",
-            "content": prompts.initial_prompt_template.format(
+            "content": initial_prompt_template.format(
                 context="\n\n".join([row.payload['text'] for row in search_result]),
                 job_description=job_description
             )
         }
     ],
     tools=[
-       {
-            "type": "function",
-            "function": {
-                "name": "Information-Parser",
-                "parameters": {
-                    "type": "object",
-                    "title": "Information-Parser",
-                    "properties": {
-                            "question": {
-                            "title": "Question",
-                            "type": "string",
-                            "description": "The interview question being asked to the candidate."
-                        },
-                        "question_category": {
-                            "title": "Question Category",
-                            "type": "string",
-                            "description": "Category of the question, must be one of: Personality, Technical Concept, Experience.",
-                            "enum": ["Personality", "Technical Concept", "Experience"]
-                        }
-                    },
-                    "required": [
-                        "question",
-                        "question_category"
-                    ]
-                }
-            }
-        }  
+       initial_schema
     ],
     tool_choice={"type": "function", "function": {"name": "Information-Parser"}},
     temperature=1,
 )
 
-initial_question = json.loads(first_response["choices"][0]['message']["function_call"]["arguments"])
+initial_question = eval(first_response.choices[0].message.tool_calls[0].function.arguments)
 print(initial_question)
 question = initial_question['question']
-
 print(question)
+
 answer = ""
 answer = input("Enter your answer : ")
 
 while answer != "end":
-    response = llm.create_chat_completion(
+    response = gen_client.chat.completions.create(
+        model=llm_id,
         messages=[
-            {
-                "role": "system",
-                "content": "You are an AI interviewer following a structured process."
-            },
+            system_prompt
+            ,
             {
                 "role": "user",
-                "content": prompts.prompt_template.format(
+                "content": prompt_template.format(
                     context="\n\n".join([row.payload['text'] for row in search_result]),
                     answer=f"Question : {question} Answer : {answer}"
                 )
             }
         ],
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": "InterviewEvaluation",
-                    "parameters": {
-                        "type": "object",
-                        "title": "InterviewEvaluation",
-                        "properties": {
-                            "technical_ability": {
-                                "title": "Technical Ability",
-                                "type": "integer",
-                                "description": "Rating for technical correctness and depth of answer (0-10).",
-                                "minimum": 0,
-                                "maximum": 10
-                            },
-                            "language_clarity": {
-                                "title": "Language & Clarity",
-                                "type": "integer",
-                                "description": "Rating for communication, structure, and articulation (0-10).",
-                                "minimum": 0,
-                                "maximum": 10
-                            },
-                            "depth_of_knowledge": {
-                                "title": "Depth of Knowledge",
-                                "type": "integer",
-                                "description": "Rating for ability to explain concepts beyond surface level (0-10).",
-                                "minimum": 0,
-                                "maximum": 10
-                            },
-                            "review": {
-                                "title": "Review",
-                                "type": "string",
-                                "description": "Detailed feedback including strengths and areas for improvement."
-                            },
-                            "satisfaction_level": {
-                                "title": "Satisfaction Level",
-                                "type": "string",
-                                "description": "Overall assessment of the candidate’s answer.",
-                                "enum": ["Highly Satisfactory", "Satisfactory", "Needs Improvement", "Unsatisfactory"]
-                            },
-                            "next_step": {
-                                "title": "Next Step",
-                                "type": "string",
-                                "description": "Determines the next action to take based on the answer.",
-                                "enum": ["Ask a deeper question", "Move to a new topic", "Prompt for a better answer"]
-                            },
-                            "question": {
-                                "title": "Question",
-                                "type": "string",
-                                "description": "The interview question being asked to the candidate."
-                            },
-                            "question_category": {
-                                "title": "Question Category",
-                                "type": "string",
-                                "description": "Category of the question, must be one of: Personality, Technical Concept, Experience.",
-                                "enum": ["Personality", "Technical Concept", "Experience"]
-                            }
-                        },
-                        "required": [
-                            "technical_ability",
-                            "language_clarity",
-                            "depth_of_knowledge",
-                            "review",
-                            "satisfaction_level",
-                            "next_step",
-                            "question",
-                            "question_category"
-                        ]
-                    }
-                }
-            }
-        ],
+        tools=[general_schema],
         tool_choice={"type": "function", "function": {"name": "InterviewEvaluation"}},
         temperature=1,
     )
 
-    parsed_response = json.loads(response["choices"][0]['message']["function_call"]["arguments"])
-    print(parsed_response)
-    question = parsed_response['question']
-    print(question)
+    parsed_response = response.choices[0].message
+    if parsed_response.content is not None:
+         parsed_response = parsed_response.content
+         match = re.search(r'"parameters": (\{.*?\})', parsed_response)
+         if match:
+            parameters_json = match.group(1)
+            parameters_dict = json.loads(parameters_json)
+            print(parameters_dict)
+            question = parameters_dict['question']
+            print(question)
+         else:
+            print("No dictionary found")
+    else:
+         parsed_response = parsed_response.tool_calls[0].function.arguments
+         parameters_dict = eval(parsed_response)
+         print(parameters_dict)
+         question = parameters_dict['question']
+         print(question)    
     answer = input("Enter your answer : ")
