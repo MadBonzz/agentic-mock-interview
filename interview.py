@@ -7,14 +7,16 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 import uuid
 import os
 from openai import OpenAI
-import re
-from formats import initial_schema, general_schema, initial_prompt_template, prompt_template, system_prompt
+from generate_response import extraction, initial_question, general_question
+from report import get_df, get_review, overall_review, generate_pdf
 
 pdf_path = 'resumes/uploaded_file.pdf'
 embedding_model_path = 'C:/Users/shour/.cache/lm-studio/models/second-state/All-MiniLM-L6-v2-Embedding-GGUF/all-MiniLM-L6-v2-Q4_0.gguf'
 llm_id = 'meta-llama-3.1-8b-instruct'
 collection_name = 'resume'
 server_url = 'http://127.0.0.1:1234/v1'
+review_path = "output.txt"
+report_path = "output.pdf"
 curr_dir = os.getcwd()
 
 gen_client = OpenAI(base_url=server_url, api_key="lm-studio")
@@ -123,68 +125,51 @@ search_result = client.search(
   limit=3
 )
 
-first_response = gen_client.chat.completions.create(
-     model=llm_id,
-     messages=[
-        system_prompt,
-        {
-            "role": "user",
-            "content": initial_prompt_template.format(
-                context="\n\n".join([row.payload['text'] for row in search_result]),
-                job_description=job_description
-            )
-        }
-    ],
-    tools=[
-       initial_schema
-    ],
-    tool_choice={"type": "function", "function": {"name": "Information-Parser"}},
-    temperature=1,
-)
+concepts = extraction(gen_client, llm_id, search_result, job_description)
+concepts = eval(concepts)["concepts"]
+if isinstance(concepts, str):
+    concepts = eval(concepts)
+print(concepts)
 
-initial_question = eval(first_response.choices[0].message.tool_calls[0].function.arguments)
-print(initial_question)
-question = initial_question['question']
+first_response = initial_question(gen_client, llm_id, search_result, concepts)
+
+question = first_response['question']
+category = first_response["question_category"]
+concept_asked = first_response["concept_asked"]
+print(category)
+print(concept_asked)
 print(question)
+
+file = open(review_path, "w")
+file.write(str(first_response) + "\n")
+
+if concept_asked in concepts:
+    concepts.remove(concept_asked)
 
 answer = ""
 answer = input("Enter your answer : ")
 
-while answer != "end":
-    response = gen_client.chat.completions.create(
-        model=llm_id,
-        messages=[
-            system_prompt
-            ,
-            {
-                "role": "user",
-                "content": prompt_template.format(
-                    context="\n\n".join([row.payload['text'] for row in search_result]),
-                    answer=f"Question : {question} Answer : {answer}"
-                )
-            }
-        ],
-        tools=[general_schema],
-        tool_choice={"type": "function", "function": {"name": "InterviewEvaluation"}},
-        temperature=1,
-    )
+questions = []
+questions.append(question)
 
-    parsed_response = response.choices[0].message
-    if parsed_response.content is not None:
-         parsed_response = parsed_response.content
-         match = re.search(r'"parameters": (\{.*?\})', parsed_response)
-         if match:
-            parameters_json = match.group(1)
-            parameters_dict = json.loads(parameters_json)
-            print(parameters_dict)
-            question = parameters_dict['question']
-            print(question)
-         else:
-            print("No dictionary found")
-    else:
-         parsed_response = parsed_response.tool_calls[0].function.arguments
-         parameters_dict = eval(parsed_response)
-         print(parameters_dict)
-         question = parameters_dict['question']
-         print(question)    
+while answer != "end":
+    parameters_dict = general_question(gen_client, llm_id, questions, concepts, concept_asked, question, answer)
+    question = parameters_dict['next_question']
+    while question in questions:
+        parameters_dict = general_question(gen_client, llm_id, questions, concepts, concept_asked, question, answer)
+        question = parameters_dict['next_question']
+    print(parameters_dict)
+    concept_asked = parameters_dict["new_concept"]
+    questions.append(question)
+    file.write(str(parameters_dict) + "\n")
+    if concept_asked in concepts:
+        concepts.remove(concept_asked)
+    print(question)
     answer = input("Enter your answer : ")
+
+file.close()
+
+df = get_df(review_path)
+eval_string = get_review(df)
+final_review = overall_review(gen_client, llm_id, eval_string)
+generate_pdf(df, report_path, final_review)
