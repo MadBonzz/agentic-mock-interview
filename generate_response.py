@@ -3,7 +3,17 @@ import json
 from openai import OpenAI
 from formats import initial_schema, general_schema, initial_prompt_template, prompt_template, system_prompt, extraction_schema, data_extraction_template, duplicate_question_template
 
-def extraction(gen_client : OpenAI, llm_id : str, search_result, job_description):
+def extract_information(input_string):
+    lines = input_string.split('\n')
+    print(lines)
+    extracted_info = {}
+    for line in lines:
+        if ': ' in line:
+            key, value = line.split(': ', 1)
+            extracted_info[key.strip()] = value.strip()
+    return extracted_info
+
+def extraction(gen_client : OpenAI, llm_id : str, report : str, search_result, job_description):
     context = gen_client.chat.completions.create(
         model=llm_id,
         messages=[
@@ -11,6 +21,7 @@ def extraction(gen_client : OpenAI, llm_id : str, search_result, job_description
             {
                 "role": "user",
                 "content": data_extraction_template.format(
+                    prev_report=report,
                     context="\n\n".join([row.payload['text'] for row in search_result]),
                     job_description=job_description
                 )
@@ -39,7 +50,15 @@ def initial_question(gen_client : OpenAI, llm_id : str, search_result, concepts 
         tool_choice={"type": "function", "function": {"name": "Information-Parser"}},
         temperature=1,
     )
-    return eval(first_response.choices[0].message.tool_calls[0].function.arguments)
+    try:
+        first_response = first_response.choices[0].message
+    except:
+        print(first_response)
+    if first_response.content is not None:
+        return extract_information(str(first_response.content))
+    else:
+        return eval(first_response.tool_calls[0].function.arguments)
+    
 
 def fix_duplicate(gen_client : OpenAI, llm_id : str, questions : list[str], concepts : list[str]):
     response = gen_client.chat.completions.create(

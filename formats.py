@@ -1,13 +1,27 @@
 data_extraction_template = """
-You are an AI Interview assistant. Provided a resume and job description, identify relevant projects, technical concepts and work experience
+You are an AI Interview assistant. Provided a resume and job description and previous evaluation report of the user. 
+If previous report is provided, analyse the report. The ratings provided are out of 10. Go through the report to find the interviewee's strong and weak aspects.
+Do not include the interviewee's strong concepts and put more focus on their weak concepts for a better evaluation.
+In case no report is provided, return concepts solely based on resume and job description. Identify relevant projects, technical concepts and work experience
 that the interviewee should be asked about. Make a comprehensive list. This list will help the interviewwer decide which concept to ask the
 question on. Always provide a single flat list of strings. Do not provide nested lists or lists containing any non string value under any scenario.
-Give output as : List[str].
+
+Steps to follow : 
+1. Create a list of user's strong concepts from the report.
+2. Create a list of user's  weak concepts from the report.
+3. Create a comprehensive list of concepts/topics from the job description and resume.
+4. Remove the strong concepts from the comprehensive list and put weak concepts in more detailed manner.
+
+Previous Report : {prev_report}
 
 Resume Information : {context}
 
 Job Description : {job_description}
 
+Give output as : .
+Strong Concepts : List[str]
+Weak Concepts : List[str]
+Final Comprehensive List : List[str]
 Answer based on the schema provided.
 """
 
@@ -21,9 +35,9 @@ Step 2: Question Generation
 Generate a single, specific question relevant to the candidate’s background and job role.
 Ensure clarity and avoid vague or generic questions.
 Output Format:
-Concept ASked : [One of the concepts provided by user]
-Question: [The actual question]
-Category: [Personality / Technical Concepts / Experience]
+concept_asked : [One of the concepts provided by user]
+question: [The actual question]
+question_category: [Personality / Technical Concepts / Experience]
 
 
 Analyze resume & concepts provided by these user → Select topic
@@ -64,13 +78,7 @@ Language & Clarity (0-10): Communication and structure.
 Depth of Knowledge (0-10): Problem-solving and real-world application.
 Identify strengths, areas for improvement, and satisfaction level.
 Output Format:
-Evaluation:
-Technical Ability: X/10
-Language & Clarity: X/10
-Depth of Knowledge: X/10
-Review: Strengths | Areas for Improvement
-Satisfaction Level: Highly Satisfactory / Satisfactory / Needs Improvement / Unsatisfactory
-Next Action: Ask a deeper question / Move to a new topic / Prompt for a better answer
+Output using the tool provided in the format of the given schema.
 
 Step 2: Follow-up Strategy
 If Highly Satisfactory → Move to a new Topic and change the concept asked.
@@ -129,13 +137,23 @@ extraction_schema = {
             "type" : "object",
             "title" : "Data-Extraction",
             "properties" : {
+                "strong_concepts" : {
+                    "title" : "strong_concepts",
+                    "type" : "List[string]",
+                    "description" : "List of concepts, projects and experience that the interviewee is strong at based on the report"
+                },
+                "weak_concepts" : {
+                    "title" : "weak_concepts",
+                    "type" : "List[string]",
+                    "description" : "List of concepts, projects and experience that the interviewee is weak at based on the report"
+                },
                 "concepts" : {
                     "title" : "concepts",
                     "type" : "List[string]",
                     "description" : "List of concepts, projects and experience that the interviewee needs to be asked about"
                 }
             },
-            "required" : ["concepts"]
+            "required" : ["strong_concepts", "weak_concepts", "concepts"]
         }
     }
 }

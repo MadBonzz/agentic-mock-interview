@@ -1,3 +1,5 @@
 /vr-interview/
 /embeddings/
+*.pth
+*.ipynb
 

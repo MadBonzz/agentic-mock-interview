@@ -12,7 +12,7 @@ from report import get_df, get_review, overall_review, generate_pdf
 
 pdf_path = 'resumes/uploaded_file.pdf'
 embedding_model_path = 'C:/Users/shour/.cache/lm-studio/models/second-state/All-MiniLM-L6-v2-Embedding-GGUF/all-MiniLM-L6-v2-Q4_0.gguf'
-llm_id = 'meta-llama-3.1-8b-instruct'
+llm_id = 'gemma-3-4b-it'
 collection_name = 'resume'
 server_url = 'http://127.0.0.1:1234/v1'
 review_path = "output.txt"
@@ -125,14 +125,36 @@ search_result = client.search(
   limit=3
 )
 
-concepts = extraction(gen_client, llm_id, search_result, job_description)
+prev_report = ""
+try:
+    md_text = pymupdf4llm.to_markdown(report_path)
+    idx = md_text.index("# Final Review")
+    md_text = md_text[idx:]
+    prev_report = md_text.replace('  ', '').replace('--', '').replace('\n\n', '\n')
+except:
+    prev_report = "No previous report"
+
+concepts = extraction(gen_client, llm_id, prev_report, search_result, job_description)
+strong = eval(concepts)["strong_concepts"]
+weak = eval(concepts)["weak_concepts"]
 concepts = eval(concepts)["concepts"]
+if isinstance(strong, str):
+    strong = eval(strong)
+if isinstance(weak, str):
+    weak = eval(weak)
 if isinstance(concepts, str):
     concepts = eval(concepts)
+
+for concept in strong:
+    if concept in concepts:
+        concepts.remove(concept)
+for concept in weak:
+    concepts.append(concept)
+
 print(concepts)
 
 first_response = initial_question(gen_client, llm_id, search_result, concepts)
-
+print(first_response)
 question = first_response['question']
 category = first_response["question_category"]
 concept_asked = first_response["concept_asked"]
